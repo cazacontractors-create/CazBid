@@ -1,0 +1,1324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="CazBid" />
+<meta name="theme-color" content="#1B1F23" />
+<title>CazBid</title>
+<script>
+(function () {
+  var w = console.warn.bind(console), l = console.log.bind(console);
+  console.warn = function () {
+    if (String(arguments[0]).indexOf("in-browser Babel") >= 0) return;
+    w.apply(null, arguments);
+  };
+  console.log = function () {
+    if (String(arguments[0]).indexOf("Babel") >= 0) return;
+    l.apply(null, arguments);
+  };
+})();
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<style>html{background:#1B1F23}body{margin:0;font-family:system-ui;background:#EEF0EB}.boot{padding:40px;text-align:center;color:#6B7280}</style>
+</head>
+<body>
+<div id="root"><div class="boot">Loading CazBid… (needs internet on first open)</div></div>
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useRef } = React;
+
+/* ============================================================
+   CAZBID v2 — AI-first estimating app for Caza Contractors
+   Per scope: description + photos + EagleView/dims -> AI builds
+   materials AND labor tasks priced from the price book and the
+   production-rate table. CSV price import. Benchmark rates tab.
+   ============================================================ */
+
+const STORE_KEY = "caza-app-data-v1";
+const rid = () => Math.random().toString(36).slice(2, 9);
+const storageShim = {
+  async get(k) { const v = localStorage.getItem(k); return v == null ? null : { key: k, value: v }; },
+  async set(k, v) { localStorage.setItem(k, v); return { key: k, value: v }; },
+};
+
+
+const DEFAULT_SETTINGS = {
+  mhRate: 85,
+  margin: 40,
+  taxRate: 8.0,
+  location: "Lyons Falls / Lewis County, NY",
+};
+
+const DEFAULT_PRICES = [
+  { id: "shingle_bndl", cat: "Sloped roof", name: "Architectural shingles (bundle)", unit: "bndl", price: 42 },
+  { id: "caps_bndl", cat: "Sloped roof", name: "Hip & ridge caps (bundle)", unit: "bndl", price: 72 },
+  { id: "starter_bndl", cat: "Sloped roof", name: "Starter strip (bundle)", unit: "bndl", price: 68 },
+  { id: "iw_roll", cat: "Sloped roof", name: "Ice & water shield (66' roll)", unit: "roll", price: 115 },
+  { id: "synth_roll", cat: "Sloped roof", name: "Synthetic underlayment (10 sq roll)", unit: "roll", price: 95 },
+  { id: "drip10", cat: "Sloped roof", name: "Drip edge (10' stick)", unit: "pc", price: 14 },
+  { id: "wvalley", cat: "Sloped roof", name: "W-valley 14\" (50 LF)", unit: "ea", price: 120 },
+  { id: "stepflash_bndl", cat: "Sloped roof", name: "Step flashing (25 pc bundle)", unit: "bndl", price: 58 },
+  { id: "boot", cat: "Sloped roof", name: "Pipe boot", unit: "ea", price: 24 },
+  { id: "ridgevent4", cat: "Sloped roof", name: "Ridge vent (4' section)", unit: "pc", price: 14 },
+  { id: "coilnails", cat: "Sloped roof", name: "Coil nails (box)", unit: "box", price: 78 },
+  { id: "ss_panel_lf", cat: "Standing seam", name: "24ga Kynar snap-lock panel 16\" (LF)", unit: "LF", price: 6.6 },
+  { id: "ss_clips", cat: "Standing seam", name: "Clips & screws (per square)", unit: "sq", price: 22 },
+  { id: "ss_ridge_lf", cat: "Standing seam", name: "Ridge cap w/ Z-closure (LF)", unit: "LF", price: 11 },
+  { id: "ss_trim_lf", cat: "Standing seam", name: "Eave/rake/valley trim (LF)", unit: "LF", price: 8 },
+  { id: "ht_underlayment", cat: "Standing seam", name: "High-temp I&W (2 sq roll)", unit: "roll", price: 185 },
+  { id: "epdm_sqft", cat: "Flat roof", name: "EPDM 60-mil membrane (sqft)", unit: "sqft", price: 1.45 },
+  { id: "iso2_sheet", cat: "Flat roof", name: "Polyiso 2\" 4x8 sheet", unit: "sht", price: 52 },
+  { id: "coverboard", cat: "Flat roof", name: "HD coverboard 1/2\" 4x8", unit: "sht", price: 48 },
+  { id: "seam_tape", cat: "Flat roof", name: "Seam tape 3\" (100' roll)", unit: "roll", price: 70 },
+  { id: "epdm_primer", cat: "Flat roof", name: "Primer (gal)", unit: "gal", price: 95 },
+  { id: "term_bar", cat: "Flat roof", name: "Term bar (10')", unit: "pc", price: 28 },
+  { id: "plates_fast", cat: "Flat roof", name: "Plates & fasteners (pail/1000)", unit: "pail", price: 320 },
+  { id: "uncured_flash", cat: "Flat roof", name: "Uncured flashing (roll)", unit: "roll", price: 88 },
+  { id: "bond_adh", cat: "Flat roof", name: "Bonding adhesive (5 gal)", unit: "pail", price: 215 },
+  { id: "flat_boot", cat: "Flat roof", name: "Pre-molded pipe boot (EPDM)", unit: "ea", price: 38 },
+  { id: "vinyl_sq", cat: "Siding", name: "Vinyl siding (per square)", unit: "sq", price: 145 },
+  { id: "ag_sqft", cat: "Siding", name: "AG panel 29ga (sqft)", unit: "sqft", price: 1.55 },
+  { id: "housewrap", cat: "Siding", name: "Housewrap (9'x150' roll)", unit: "roll", price: 175 },
+  { id: "j_channel", cat: "Siding", name: "J-channel (12'6\")", unit: "pc", price: 9.5 },
+  { id: "corner_post", cat: "Siding", name: "Outside corner post (10')", unit: "pc", price: 28 },
+  { id: "siding_fast", cat: "Siding", name: "Siding nails/screws (box)", unit: "box", price: 65 },
+  { id: "stud_2x4", cat: "Framing & decks", name: "2x4x8 SPF stud", unit: "ea", price: 4.25 },
+  { id: "plate_2x4x16", cat: "Framing & decks", name: "2x4x16 plate stock", unit: "ea", price: 9.5 },
+  { id: "lvl_lf", cat: "Framing & decks", name: "LVL 1-3/4 x 11-7/8 (LF)", unit: "LF", price: 12 },
+  { id: "pt_2x8x12", cat: "Framing & decks", name: "PT 2x8x12", unit: "ea", price: 18 },
+  { id: "osb", cat: "Framing & decks", name: "OSB 7/16\" 4x8", unit: "sht", price: 16 },
+  { id: "trex_sqft", cat: "Framing & decks", name: "Composite decking (sqft)", unit: "sqft", price: 5.5 },
+  { id: "vinyl_rail_lf", cat: "Framing & decks", name: "Vinyl railing (LF)", unit: "LF", price: 38 },
+  { id: "joist_hanger", cat: "Framing & decks", name: "Joist hanger 2x8", unit: "ea", price: 2.5 },
+  { id: "framing_nails", cat: "Framing & decks", name: "Framing nails (box)", unit: "box", price: 70 },
+  { id: "soffit_lf", cat: "Exterior trim", name: "Vinyl soffit (LF, 12\" wide)", unit: "LF", price: 3.25 },
+  { id: "fascia_lf", cat: "Exterior trim", name: "Aluminum fascia 6\" (LF)", unit: "LF", price: 2.85 },
+  { id: "coil_roll", cat: "Exterior trim", name: "Trim coil 24\"x50'", unit: "roll", price: 125 },
+  { id: "lvp_sqft", cat: "Interior", name: "LVP flooring (sqft)", unit: "sqft", price: 2.85 },
+  { id: "lvp_underlay", cat: "Interior", name: "Underlayment (100 sqft roll)", unit: "roll", price: 55 },
+  { id: "transition", cat: "Interior", name: "Transition / T-mold", unit: "ea", price: 32 },
+  { id: "dw_sheet", cat: "Interior", name: "Drywall 1/2\" 4x8", unit: "sht", price: 14 },
+  { id: "mud_box", cat: "Interior", name: "Joint compound (box)", unit: "box", price: 18 },
+  { id: "dw_tape", cat: "Interior", name: "Paper tape (500')", unit: "roll", price: 6 },
+  { id: "dw_screws", cat: "Interior", name: "Drywall screws (lb)", unit: "lb", price: 7 },
+];
+
+/* Industry-benchmark production rates (man-hours per unit) — editable */
+const DEFAULT_RATES = [
+  { id: "r_tearoff_shingle", cat: "Roofing — steep slope", task: "Tear-off — shingles (per layer)", unit: "sq", rate: 1.0 },
+  { id: "r_shingle", cat: "Roofing — steep slope", task: "Shingle install (architectural, walkable)", unit: "sq", rate: 2.0 },
+  { id: "r_steep_adder", cat: "Roofing — steep slope", task: "Steep-slope adder (10/12+)", unit: "sq", rate: 1.0 },
+  { id: "r_underlayment", cat: "Roofing — steep slope", task: "Synthetic underlayment", unit: "sq", rate: 0.15 },
+  { id: "r_iw", cat: "Roofing — steep slope", task: "Ice & water shield", unit: "sq", rate: 0.25 },
+  { id: "r_dripedge", cat: "Roofing — steep slope", task: "Drip edge / perimeter metal", unit: "LF", rate: 0.03 },
+  { id: "r_ridge", cat: "Roofing — steep slope", task: "Ridge vent & caps", unit: "LF", rate: 0.06 },
+  { id: "r_ss_panel", cat: "Roofing — steep slope", task: "Standing seam panel install", unit: "sq", rate: 3.5 },
+  { id: "r_ss_trim", cat: "Roofing — steep slope", task: "Standing seam trim / flashings", unit: "LF", rate: 0.08 },
+  { id: "r_tearoff_flat", cat: "Roofing — flat / low slope", task: "Tear-off — BUR / EPDM (per layer)", unit: "sq", rate: 1.5 },
+  { id: "r_iso", cat: "Roofing — flat / low slope", task: "ISO insulation install (per layer)", unit: "sq", rate: 0.5 },
+  { id: "r_coverboard", cat: "Roofing — flat / low slope", task: "Coverboard install", unit: "sq", rate: 0.5 },
+  { id: "r_epdm", cat: "Roofing — flat / low slope", task: "EPDM membrane (fully adhered)", unit: "sq", rate: 1.2 },
+  { id: "r_tpo", cat: "Roofing — flat / low slope", task: "TPO mech-attached + welds", unit: "sq", rate: 1.0 },
+  { id: "r_termbar", cat: "Roofing — flat / low slope", task: "Term bar / edge detail", unit: "LF", rate: 0.06 },
+  { id: "r_parapet", cat: "Roofing — flat / low slope", task: "Parapet wrap / coping", unit: "LF", rate: 0.15 },
+  { id: "r_pen", cat: "Roofing — flat / low slope", task: "Penetration flashing", unit: "ea", rate: 0.75 },
+  { id: "r_wall_frame", cat: "Framing & decks", task: "Wall framing 2x4/2x6", unit: "sqft", rate: 0.08 },
+  { id: "r_rafter", cat: "Framing & decks", task: "Rafter framing (stick-built)", unit: "sqft", rate: 0.12 },
+  { id: "r_sheathing", cat: "Framing & decks", task: "Sheathing install", unit: "sqft", rate: 0.025 },
+  { id: "r_deck_frame", cat: "Framing & decks", task: "Deck framing (PT joists/beams)", unit: "sqft", rate: 0.15 },
+  { id: "r_decking", cat: "Framing & decks", task: "Composite decking install", unit: "sqft", rate: 0.1 },
+  { id: "r_railing", cat: "Framing & decks", task: "Vinyl/composite railing", unit: "LF", rate: 0.4 },
+  { id: "r_vinyl_siding", cat: "Exterior", task: "Vinyl siding install", unit: "sq", rate: 3.0 },
+  { id: "r_ag_panel", cat: "Exterior", task: "AG panel siding/roofing", unit: "sq", rate: 2.0 },
+  { id: "r_housewrap", cat: "Exterior", task: "Housewrap", unit: "sq", rate: 0.2 },
+  { id: "r_soffit", cat: "Exterior", task: "Soffit install", unit: "LF", rate: 0.08 },
+  { id: "r_fascia", cat: "Exterior", task: "Fascia / trim coil wrap", unit: "LF", rate: 0.06 },
+  { id: "r_window", cat: "Exterior", task: "Window/door install (replacement)", unit: "ea", rate: 2.5 },
+  { id: "r_lvp", cat: "Interior", task: "LVP flooring install", unit: "sqft", rate: 0.025 },
+  { id: "r_dw_hang", cat: "Interior", task: "Drywall hang", unit: "sqft", rate: 0.012 },
+  { id: "r_dw_finish", cat: "Interior", task: "Drywall tape & finish", unit: "sqft", rate: 0.03 },
+  { id: "r_trim", cat: "Interior", task: "Interior trim", unit: "LF", rate: 0.05 },
+];
+
+const QUICK_DIMS = [
+  ["Roof area", "sqft"], ["Pitch", "/12"], ["Eaves", "LF"], ["Rakes", "LF"],
+  ["Ridges", "LF"], ["Hips", "LF"], ["Valleys", "LF"], ["Step flashing", "LF"],
+  ["Wall flashing", "LF"], ["Perimeter", "LF"], ["Parapet", "LF"], ["Penetrations", "ct"],
+  ["Wall length", "LF"], ["Wall height", "ft"], ["Wall area", "sqft"], ["Floor area", "sqft"],
+];
+
+/* EagleView field -> dimension row label/unit */
+const EV_DIM_MAP = {
+  area: ["Roof area", "sqft"], pitch: ["Pitch", "/12"], eaves: ["Eaves", "LF"],
+  rakes: ["Rakes", "LF"], ridges: ["Ridges", "LF"], hips: ["Hips", "LF"],
+  valleys: ["Valleys", "LF"], flashing: ["Wall flashing", "LF"],
+  stepflash: ["Step flashing", "LF"], pens: ["Penetrations", "ct"],
+};
+
+/* ---------- formatting / helpers ---------- */
+const $0 = (n) => "$" + (Math.round(n) || 0).toLocaleString();
+const $2 = (n) => "$" + (n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const num = (v) => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
+const errMsg = (e) => {
+  const m = (e && e.message) || "unknown error";
+  return m === "Failed to fetch" ? "network/API error — check connection and retry" : m;
+};
+
+/* ---------- AI helpers ---------- */
+async function callClaude(messages, tools) {
+  const key = (localStorage.getItem("caza-api-key") || "").trim();
+  if (!key) throw new Error("No API key — paste your Anthropic API key in Settings to unlock AI features");
+  const body = { model: "claude-sonnet-4-20250514", max_tokens: 2000, messages };
+  if (tools) body.tools = tools;
+  body.messages = body.messages.map((m) =>
+    typeof m.content === "string" ? { ...m, content: [{ type: "text", text: m.content }] } : m
+  );
+  let lastErr;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      let res;
+      try {
+        res = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": key,
+            "anthropic-version": "2023-06-01",
+            "anthropic-dangerous-direct-browser-access": "true",
+          },
+          body: JSON.stringify(body),
+        });
+      } catch (e) {
+        throw new Error("Network: " + (e.message || "fetch failed"));
+      }
+      const raw = await res.text();
+      if (!raw || !raw.trim()) throw new Error("empty reply (connection dropped mid-request)");
+      let data;
+      try {
+        data = JSON.parse(raw);
+      } catch (e) {
+        throw new Error("API status " + res.status + ", non-JSON reply: " + raw.slice(0, 120));
+      }
+      if (data.error) {
+        const msg = typeof data.error === "string" ? data.error : (data.error.message || JSON.stringify(data.error));
+        if (res.status === 401) throw new Error("API key rejected — double-check the key in Settings");
+        throw new Error("API status " + res.status + ": " + String(msg).slice(0, 160));
+      }
+      if (!res.ok) throw new Error("API status " + res.status + ": " + raw.slice(0, 120));
+      if (!data.content || !Array.isArray(data.content)) throw new Error("Unexpected API shape: " + raw.slice(0, 120));
+      return data.content.filter((b) => b.type === "text").map((b) => b.text).join("\n");
+    } catch (e) {
+      lastErr = e;
+      const m = e.message || "";
+      const retryable = m.includes("empty reply") || m.includes("Network:") || m.includes("429") || m.includes("529") || m.toLowerCase().includes("overloaded");
+      if (attempt < 2 && retryable) { await new Promise((r) => setTimeout(r, 1500)); continue; }
+      throw e;
+    }
+  }
+  throw lastErr;
+}
+function parseJSON(text) {
+  const clean = (text || "").replace(/```json|```/g, "").trim();
+  const s = clean.search(/[\[{]/);
+  if (s < 0) throw new Error("no JSON in response");
+  const e = Math.max(clean.lastIndexOf("}"), clean.lastIndexOf("]"));
+  return JSON.parse(clean.slice(s, e + 1));
+}
+const fileToB64 = (file) => new Promise((res, rej) => {
+  const r = new FileReader();
+  r.onload = () => res(r.result.split(",")[1]);
+  r.onerror = () => rej(new Error("Read failed"));
+  r.readAsDataURL(file);
+});
+const readDataURL = (file) => new Promise((res, rej) => {
+  const r = new FileReader();
+  r.onload = () => res(r.result);
+  r.onerror = () => rej(new Error("file read failed"));
+  r.readAsDataURL(file);
+});
+const imageToJpeg = async (file, max = 1400) => {
+  // Path 1: createImageBitmap — decodes without object URLs (works in sandboxed views)
+  try {
+    const bmp = await createImageBitmap(file);
+    const scale = Math.min(1, max / Math.max(bmp.width, bmp.height));
+    const cv = document.createElement("canvas");
+    cv.width = Math.max(1, Math.round(bmp.width * scale));
+    cv.height = Math.max(1, Math.round(bmp.height * scale));
+    cv.getContext("2d").drawImage(bmp, 0, 0, cv.width, cv.height);
+    if (bmp.close) bmp.close();
+    return cv.toDataURL("image/jpeg", 0.8);
+  } catch (e) { /* fall through */ }
+  // Path 2: data URL into <img>
+  const dataUrl = await readDataURL(file);
+  return await new Promise((res, rej) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const scale = Math.min(1, max / Math.max(img.width, img.height));
+        const cv = document.createElement("canvas");
+        cv.width = Math.max(1, Math.round(img.width * scale));
+        cv.height = Math.max(1, Math.round(img.height * scale));
+        cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
+        res(cv.toDataURL("image/jpeg", 0.8));
+      } catch (err) { rej(err); }
+    };
+    img.onerror = () => rej(new Error("decode failed"));
+    img.src = dataUrl;
+  });
+};
+
+/* ---------- CSV ---------- */
+function parseCSV(text) {
+  const DQ = String.fromCharCode(34); // double-quote char
+  const rows = []; let row = [], cur = "", q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) {
+      if (c === DQ) { if (text[i + 1] === DQ) { cur += DQ; i++; } else q = false; }
+      else cur += c;
+    } else if (c === DQ) q = true;
+    else if (c === ",") { row.push(cur); cur = ""; }
+    else if (c === "\n" || c === "\r") {
+      if (cur !== "" || row.length) { row.push(cur); rows.push(row); row = []; cur = ""; }
+      if (c === "\r" && text[i + 1] === "\n") i++;
+    } else cur += c;
+  }
+  if (cur !== "" || row.length) { row.push(cur); rows.push(row); }
+  return rows.filter((r) => r.some((c) => String(c).trim() !== ""));
+}
+
+/* ---------- scope model ---------- */
+const newScope = () => ({
+  id: rid(), label: "", note: "", desc: "", photos: [],
+  dims: [], lines: [], labor: [], suggestions: [],
+});
+const newBid = () => ({ name: "", client: "", scopes: [newScope()], others: [] });
+
+/* swapped at build time in the standalone to include the API key */
+const exportExtras = () => { try { return { apiKey: localStorage.getItem("caza-api-key") || "" }; } catch (e) { return {}; } };
+const importExtras = (d) => { try { if (d.apiKey) localStorage.setItem("caza-api-key", d.apiKey); } catch (e) {} };
+
+/* ---------- hold-and-slide row mover (touch + mouse) ---------- */
+function useDragMove(setItems) {
+  const [drag, setDrag] = useState(null);   // dragged item id
+  const [over, setOver] = useState(null);   // {id, after} | {cat}
+  const overRef = useRef(null);
+
+  const commit = (id) => {
+    const o = overRef.current;
+    setItems((prev) => {
+      const items = [...prev];
+      const fromIdx = items.findIndex((x) => x.id === id);
+      if (fromIdx < 0) return prev;
+      const [item] = items.splice(fromIdx, 1);
+      if (o && o.id && o.id !== id) {
+        const tIdx = items.findIndex((x) => x.id === o.id);
+        if (tIdx < 0) { items.splice(fromIdx, 0, item); return items; }
+        const moved = { ...item, cat: items[tIdx].cat };
+        items.splice(tIdx + (o.after ? 1 : 0), 0, moved);
+      } else if (o && o.cat) {
+        const moved = { ...item, cat: o.cat };
+        const firstIdx = items.findIndex((x) => x.cat === o.cat);
+        if (firstIdx >= 0) items.splice(firstIdx, 0, moved); else items.push(moved);
+      } else {
+        items.splice(fromIdx, 0, item);
+      }
+      return items;
+    });
+    setDrag(null); setOver(null); overRef.current = null;
+  };
+
+  const onDown = (id) => (e) => {
+    e.preventDefault();
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch (err) {}
+    setDrag(id);
+    const onMove = (ev) => {
+      // edge auto-scroll so long lists can be crossed on a phone
+      if (ev.clientY < 90) window.scrollBy(0, -12);
+      else if (ev.clientY > window.innerHeight - 90) window.scrollBy(0, 12);
+      const el = document.elementFromPoint(ev.clientX, ev.clientY);
+      const rowEl = el && el.closest("[data-dragid]");
+      const hdrEl = el && el.closest("[data-dragcat]");
+      let o = null;
+      if (rowEl && rowEl.getAttribute("data-dragid") !== id) {
+        const rect = rowEl.getBoundingClientRect();
+        o = { id: rowEl.getAttribute("data-dragid"), after: ev.clientY > rect.top + rect.height / 2 };
+      } else if (hdrEl) {
+        o = { cat: hdrEl.getAttribute("data-dragcat") };
+      }
+      overRef.current = o; setOver(o);
+    };
+    const onUp = () => {
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onUp);
+      document.removeEventListener("pointercancel", onUp);
+      commit(id);
+    };
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onUp);
+    document.addEventListener("pointercancel", onUp);
+  };
+
+  const rowProps = (id) => ({
+    "data-dragid": id,
+    className:
+      (drag === id ? "dragging " : "") +
+      (over && over.id === id ? (over.after ? "over-bot" : "over-top") : ""),
+  });
+  const hdrProps = (cat) => ({
+    "data-dragcat": cat,
+    className: "cat" + (over && over.cat === cat ? " cat-over" : ""),
+  });
+  const handleProps = (id) => ({ className: "grab", title: "Hold & slide to move", onPointerDown: onDown(id) });
+  return { rowProps, hdrProps, handleProps, dragging: drag != null };
+}
+
+/* migrate v1 (trade-based) scopes so old saved bids still open */
+const migScope = (s) => {
+  if (Array.isArray(s.dims)) return { ...newScope(), ...s };
+  const dims = Object.entries(s.dims || {})
+    .filter(([, v]) => num(v) > 0)
+    .map(([k, v]) => ({ id: rid(), label: k, value: num(v), unit: "" }));
+  const mh = num(s.mhOverride);
+  return {
+    ...newScope(), id: s.id || rid(), label: s.label || "", note: s.note || "",
+    dims, lines: s.lines || [],
+    labor: mh > 0 ? [{ id: rid(), task: "Labor (carried from old bid)", qty: mh, unit: "MH", rate: 1 }] : [],
+  };
+};
+
+/* ============================================================ */
+function App() {
+  const [tab, setTab] = useState("bid");
+  const [settings, setSettings] = useState(DEFAULT_SETTINGS);
+  const [prices, setPrices] = useState(DEFAULT_PRICES);
+  const [rates, setRates] = useState(DEFAULT_RATES);
+  const [bid, setBid] = useState(newBid());
+  const [saved, setSaved] = useState([]);
+  const [busy, setBusy] = useState("");
+  const [toast, setToast] = useState("");
+  const [priceNote, setPriceNote] = useState("");
+  const [rateNote, setRateNote] = useState("");
+  const [apiKey, setApiKey] = useState(() => { try { return localStorage.getItem("caza-api-key") || ""; } catch (e) { return ""; } });
+  const [pastePanel, setPastePanel] = useState(null);
+  const [pasteText, setPasteText] = useState("");
+  const [backupText, setBackupText] = useState("");
+  const loaded = useRef(false);
+  const saveTimer = useRef(null);
+  const priceDrag = useDragMove(setPrices);
+  const rateDrag = useDragMove(setRates);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await storageShim.get(STORE_KEY);
+        if (r && r.value) {
+          const d = JSON.parse(r.value);
+          if (d.settings) setSettings({ ...DEFAULT_SETTINGS, ...d.settings });
+          if (d.prices) setPrices(d.prices);
+          if (d.rates) setRates(d.rates);
+          if (d.saved) setSaved(d.saved);
+          if (d.priceNote) setPriceNote(d.priceNote);
+          if (d.rateNote) setRateNote(d.rateNote);
+        }
+      } catch (e) { /* first run */ }
+      loaded.current = true;
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (!loaded.current) return;
+    clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(async () => {
+      try {
+        await storageShim.set(STORE_KEY, JSON.stringify({ settings, prices, rates, saved, priceNote, rateNote }));
+      } catch (e) { /* storage unavailable — keep working in-memory */ }
+    }, 800);
+  }, [settings, prices, rates, saved, priceNote, rateNote]);
+
+  const flash = (m) => { setToast(m); setTimeout(() => setToast(""), 6500); };
+
+  /* ----- bid math ----- */
+  const scopeMat = (s) => s.lines.reduce((t, l) => t + num(l.qty) * num(l.price), 0);
+  const scopeMH = (s) => s.labor.reduce((t, l) => t + num(l.qty) * num(l.rate), 0);
+  const matSub = bid.scopes.reduce((t, s) => t + scopeMat(s), 0);
+  const tax = matSub * (settings.taxRate / 100);
+  const totalMH = bid.scopes.reduce((t, s) => t + scopeMH(s), 0);
+  const laborCost = totalMH * settings.mhRate;
+  const otherCost = bid.others.reduce((t, o) => t + num(o.amount), 0);
+  const totalCost = matSub + tax + laborCost + otherCost;
+  const m = Math.min(num(settings.margin), 95) / 100;
+  const sell = m < 1 ? totalCost / (1 - m) : totalCost;
+  const gp = sell - totalCost;
+  const markupEq = totalCost > 0 ? (gp / totalCost) * 100 : 0;
+
+  /* ----- scope CRUD ----- */
+  const upScope = (id, patch) =>
+    setBid((b) => ({ ...b, scopes: b.scopes.map((s) => (s.id === id ? { ...s, ...patch } : s)) }));
+  const upArr = (sid, key, lid, patch) =>
+    setBid((b) => ({ ...b, scopes: b.scopes.map((s) => s.id !== sid ? s : { ...s, [key]: s[key].map((x) => (x.id === lid ? { ...x, ...patch } : x)) }) }));
+  const rmArr = (sid, key, lid) =>
+    setBid((b) => ({ ...b, scopes: b.scopes.map((s) => s.id !== sid ? s : { ...s, [key]: s[key].filter((x) => x.id !== lid) }) }));
+  const pushArr = (sid, key, item) =>
+    setBid((b) => ({ ...b, scopes: b.scopes.map((s) => s.id !== sid ? s : { ...s, [key]: [...s[key], item] }) }));
+
+  const addDim = (s, label, unit) => pushArr(s.id, "dims", { id: rid(), label: label || "", value: "", unit: unit || "" });
+  const setDimRows = (s, parsed) => {
+    setBid((b) => ({
+      ...b,
+      scopes: b.scopes.map((sc) => {
+        if (sc.id !== s.id) return sc;
+        let dims = [...sc.dims];
+        for (const [k, v] of Object.entries(parsed)) {
+          const map = EV_DIM_MAP[k];
+          if (!map || !(num(v) > 0)) continue;
+          const i = dims.findIndex((d) => d.label === map[0]);
+          if (i >= 0) dims[i] = { ...dims[i], value: num(v) };
+          else dims.push({ id: rid(), label: map[0], value: num(v), unit: map[1] });
+        }
+        return { ...sc, dims };
+      }),
+    }));
+  };
+
+  /* ----- photos ----- */
+  const addPhotos = async (s, files) => {
+    if (!files || !files.length) return;
+    setBusy("ph-" + s.id);
+    try {
+      const list = [];
+      let firstErr = null;
+      for (const f of Array.from(files).slice(0, 6)) {
+        try {
+          list.push(await imageToJpeg(f));
+        } catch (e) {
+          // Last resort: pass the raw file through if it's a format the AI accepts
+          if (["image/jpeg", "image/png", "image/webp", "image/gif"].includes(f.type)) {
+            try { list.push(await readDataURL(f)); } catch (e2) { firstErr = firstErr || e2; }
+          } else firstErr = firstErr || e;
+        }
+      }
+      if (!list.length) throw new Error("couldn't read those photos" + (firstErr && firstErr.message ? " (" + firstErr.message + ")" : "") + " — try JPG/PNG or a screenshot");
+      setBid((b) => ({ ...b, scopes: b.scopes.map((sc) => sc.id !== s.id ? sc : { ...sc, photos: [...sc.photos, ...list].slice(0, 6) }) }));
+    } catch (e) { flash("Photo add failed: " + errMsg(e)); }
+    setBusy("");
+  };
+
+  /* ----- AI: EagleView parse ----- */
+  const EV_PROMPT = "This is a roof measurement report (EagleView or similar) — totals are usually on a 'Report Summary' or 'Lengths, Areas and Pitches' page. Respond with ONLY raw JSON, no markdown fences, no prose: {\"area\": total roof area in sqft, \"pitch\": predominant pitch numerator as a number (8/12 -> 8), \"eaves\": eave LF, \"rakes\": rake LF, \"ridges\": ridge LF, \"hips\": hip LF, \"valleys\": valley LF, \"flashing\": wall/apron flashing LF, \"stepflash\": step flashing LF, \"pens\": penetration count}. Use 0 for any value not found.";
+  const handleEV = async (scope, file) => {
+    if (!file) return;
+    setBusy("ev-" + scope.id);
+    try {
+      const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name || "");
+      let block;
+      if (isPdf) {
+        if (file.size > 28 * 1024 * 1024) throw new Error("PDF over 28MB — export a smaller report");
+        block = { type: "document", source: { type: "base64", media_type: "application/pdf", data: await fileToB64(file) } };
+      } else {
+        let b64;
+        try {
+          b64 = (await imageToJpeg(file, 2000)).split(",")[1];
+        } catch (err) {
+          if (["image/jpeg", "image/png", "image/webp", "image/gif"].includes(file.type)) {
+            b64 = await fileToB64(file);
+            block = { type: "image", source: { type: "base64", media_type: file.type, data: b64 } };
+          } else {
+            throw new Error("Unsupported image format — use a PDF, JPG, PNG, or a screenshot");
+          }
+        }
+        if (!block) block = { type: "image", source: { type: "base64", media_type: "image/jpeg", data: b64 } };
+      }
+      let text = await callClaude([{ role: "user", content: [block, { type: "text", text: EV_PROMPT }] }]);
+      let d;
+      try {
+        d = parseJSON(text);
+      } catch (err) {
+        const fixed = await callClaude([{
+          role: "user",
+          content: "Convert this roof measurement summary into strict JSON with keys area, pitch, eaves, rakes, ridges, hips, valleys, flashing, stepflash, pens (numbers, 0 if unknown). Output ONLY the JSON object.\n\n" + text,
+        }]);
+        d = parseJSON(fixed);
+      }
+      if (!num(d.area)) throw new Error("No roof area found — is this the measurement report?");
+      setDimRows(scope, d);
+      flash("EagleView parsed — dimensions filled. Verify, then build the estimate.");
+    } catch (e) {
+      flash("Parse failed: " + errMsg(e) + ". Try the PDF, a screenshot of the summary page, or Paste text.");
+    }
+    setBusy("");
+  };
+
+  const parsePaste = async (s) => {
+    if (!pasteText.trim()) { flash("Paste the report numbers first."); return; }
+    setBusy("ev-" + s.id);
+    try {
+      const text = await callClaude([{ role: "user", content: EV_PROMPT + "\n\nReport text:\n" + pasteText.trim() }]);
+      const d = parseJSON(text);
+      if (!num(d.area)) throw new Error("No roof area found in that text");
+      setDimRows(s, d);
+      setPastePanel(null); setPasteText("");
+      flash("Parsed — dimensions filled. Verify, then build the estimate.");
+    } catch (e) { flash("Parse failed: " + errMsg(e)); }
+    setBusy("");
+  };
+
+  /* ----- AI: build estimate from description + photos + dims ----- */
+  const buildEstimate = async (s) => {
+    if (!s.desc.trim() && s.dims.length === 0 && s.photos.length === 0) {
+      flash("Give it something to work with — a description, dimensions, or photos."); return;
+    }
+    setBusy("ai-" + s.id);
+    try {
+      const dimsTxt = s.dims.filter((d) => d.label && d.value !== "").map((d) => d.label + ": " + d.value + " " + d.unit).join("; ") || "none provided";
+      const priceTxt = prices.slice(0, 90).map((p) => p.name + " | " + p.unit + " | $" + p.price).join("\n");
+      const rateTxt = rates.map((r) => r.task + " | " + r.unit + " | " + r.rate + " MH/" + r.unit).join("\n");
+      const prompt =
+        "You are a senior estimator for a roofing/exterior/carpentry contractor near " + settings.location + ".\n" +
+        "JOB DESCRIPTION: " + (s.desc.trim() || "(see photos and dimensions)") + "\n" +
+        "DIMENSIONS: " + dimsTxt + "\n" +
+        (s.photos.length ? "Photos of the job are attached — use them to judge scope, condition, and access.\n" : "") +
+        "PRICE BOOK (use these exact prices when an item matches; realistic local prices otherwise):\n" + priceTxt + "\n" +
+        "PRODUCTION RATES (use these MH rates when a task matches):\n" + rateTxt + "\n" +
+        "Shingle takeoff rules when roof dims exist: field shingles=(area*1.12)/100 squares at 3 bndl/sq; I&W rolls=((eaves*2)+valleys+wall flashing+step flashing)/66 round up; caps=((ridges+hips)*1.10)/30 round up; drip edge sticks=(eaves+rakes)*1.15/10; starter=(eaves*1.10)/100; step flash bundles=LF/25.\n" +
+        "Build a complete estimate including supporting items crews need but estimators miss (soffit, fascia, flashing, hangers, fasteners, sealants, underlayment, protection). Respond with ONLY raw JSON, no markdown: {\"label\": short scope name, \"materials\": [max 12, terse names: {\"name\":\"...\",\"qty\":number,\"unit\":\"...\",\"price\":unit price USD,\"cat\":category from [Sloped roof, Standing seam, Flat roof, Siding, Framing & decks, Exterior trim, Interior, Imported]}], \"labor\": [max 8: {\"task\":\"...\",\"qty\":number,\"unit\":\"...\",\"rate\":MH per unit,\"cat\":category from [Roofing — steep slope, Roofing — flat / low slope, Framing & decks, Exterior, Interior, Custom]}], \"note\": one short line of assumptions}";
+      const content = [
+        ...s.photos.slice(0, 3).map((p) => {
+          const mt = p.startsWith("data:") ? (p.substring(5, p.indexOf(";")) || "image/jpeg") : "image/jpeg";
+          return { type: "image", source: { type: "base64", media_type: mt, data: p.split(",")[1] } };
+        }),
+        { type: "text", text: prompt },
+      ];
+      const text = await callClaude([{ role: "user", content }]);
+      const d = parseJSON(text);
+      const lines = (Array.isArray(d.materials) ? d.materials : []).map((l) => ({
+        id: rid(), name: String(l.name || "Item"), qty: num(l.qty) || 1, unit: l.unit || "ea", price: num(l.price), cat: l.cat ? String(l.cat).slice(0, 40) : "",
+      }));
+      const labor = (Array.isArray(d.labor) ? d.labor : []).map((l) => ({
+        id: rid(), task: String(l.task || "Task"), qty: num(l.qty) || 1, unit: l.unit || "ea", rate: num(l.rate), cat: l.cat ? String(l.cat).slice(0, 40) : "",
+      }));
+      if (!lines.length) throw new Error("No materials returned — add more detail");
+      upScope(s.id, { label: d.label || s.label, note: d.note || "", lines, labor, suggestions: [] });
+      const mh = labor.reduce((t, l) => t + num(l.qty) * num(l.rate), 0);
+      flash("Estimate built: " + (d.label || "scope") + " — " + lines.length + " materials, " + Math.round(mh) + " MH. Check qtys & prices.");
+    } catch (e) { flash("Estimate failed: " + errMsg(e)); }
+    setBusy("");
+  };
+
+  /* ----- AI: suggest missed materials ----- */
+  const suggest = async (s) => {
+    setBusy("sug-" + s.id);
+    try {
+      const text = await callClaude([{
+        role: "user",
+        content: "You are an experienced exterior contractor estimator in upstate NY. Scope: " + (s.label || s.desc.slice(0, 120) || "exterior project") +
+          ". Current material list: " + s.lines.map((l) => l.qty + " " + l.unit + " " + l.name).join("; ") +
+          ". List up to 6 commonly missed or supporting materials NOT already on the list (sealants, fasteners, ventilation, trim, dump/protection consumables — real items a crew would need). Respond ONLY with a JSON array, no markdown: [{\"name\":\"...\",\"qty\":number,\"unit\":\"...\",\"price\":estimated unit price USD,\"why\":\"short reason\"}]",
+      }]);
+      const arr = parseJSON(text);
+      upScope(s.id, { suggestions: Array.isArray(arr) ? arr : [] });
+    } catch (e) { flash("Suggestions failed: " + errMsg(e)); }
+    setBusy("");
+  };
+  const acceptSug = (s, i) => {
+    const g = s.suggestions[i];
+    setBid((b) => ({
+      ...b, scopes: b.scopes.map((sc) => sc.id !== s.id ? sc : {
+        ...sc,
+        lines: [...sc.lines, { id: rid(), name: g.name, qty: num(g.qty) || 1, unit: g.unit || "ea", price: num(g.price) }],
+        suggestions: sc.suggestions.filter((_, j) => j !== i),
+      }),
+    }));
+  };
+
+  /* ----- AI: live price refresh ----- */
+  const refreshPrices = async () => {
+    setBusy("prices");
+    let updated = 0;
+    const chunks = [];
+    for (let i = 0; i < prices.length; i += 9) chunks.push(prices.slice(i, i + 9));
+    let next = [...prices];
+    try {
+      for (const chunk of chunks) {
+        const items = chunk.map((p) => "id=" + p.id + ": " + p.name + " (per " + p.unit + ")").join("; ");
+        const text = await callClaude(
+          [{
+            role: "user",
+            content: "Search current retail prices (Home Depot, Lowes, ABC Supply, Beacon, Menards) near " + settings.location + " for these building materials. Items: " + items + ". Respond ONLY with a JSON array, no markdown: [{\"id\":\"...\",\"price\": number USD per stated unit}]. Skip any item you cannot price confidently.",
+          }],
+          [{ type: "web_search_20250305", name: "web_search" }]
+        );
+        try {
+          const arr = parseJSON(text);
+          for (const u of arr) {
+            const idx = next.findIndex((p) => p.id === u.id);
+            if (idx >= 0 && num(u.price) > 0) { next[idx] = { ...next[idx], price: num(u.price) }; updated++; }
+          }
+        } catch (e) { /* skip bad chunk */ }
+      }
+      setPrices(next);
+      const note = "Last refresh: " + new Date().toLocaleDateString() + " — " + updated + " items updated";
+      setPriceNote(note);
+      flash(note + ". Spot-check against your supplier pricing.");
+    } catch (e) { flash("Price lookup failed: " + errMsg(e)); }
+    setBusy("");
+  };
+
+  /* ----- AI: benchmark production rates ----- */
+  const benchmarkRates = async () => {
+    setBusy("rates");
+    let updated = 0;
+    const chunks = [];
+    for (let i = 0; i < rates.length; i += 10) chunks.push(rates.slice(i, i + 10));
+    let next = [...rates];
+    try {
+      for (const chunk of chunks) {
+        const items = chunk.map((r) => "id=" + r.id + ": " + r.task + " (MH per " + r.unit + ", sq=100 sqft)").join("; ");
+        const text = await callClaude(
+          [{
+            role: "user",
+            content: "Using US construction industry productivity benchmarks (RSMeans-style crew outputs, contractor estimating guides), give typical installed man-hours per stated unit for these tasks: " + items + ". Respond ONLY with a JSON array, no markdown: [{\"id\":\"...\",\"rate\": number MH per stated unit}]. Skip any task you cannot benchmark confidently.",
+          }],
+          [{ type: "web_search_20250305", name: "web_search" }]
+        );
+        try {
+          const arr = parseJSON(text);
+          for (const u of arr) {
+            const idx = next.findIndex((r) => r.id === u.id);
+            if (idx >= 0 && num(u.rate) > 0) { next[idx] = { ...next[idx], rate: num(u.rate) }; updated++; }
+          }
+        } catch (e) { /* skip bad chunk */ }
+      }
+      setRates(next);
+      const note = "Last benchmark: " + new Date().toLocaleDateString() + " — " + updated + " rates updated";
+      setRateNote(note);
+      flash(note + ". Tune to your crews — benchmarks are averages.");
+    } catch (e) { flash("Benchmark lookup failed: " + errMsg(e)); }
+    setBusy("");
+  };
+
+  /* ----- AI: connection test ----- */
+  const testAI = async () => {
+    setBusy("test");
+    try {
+      const t = await callClaude([{ role: "user", content: "Reply with exactly: OK" }]);
+      flash("AI connection good — model replied: " + t.slice(0, 40));
+    } catch (e) { flash("AI test failed → " + errMsg(e)); }
+    setBusy("");
+  };
+
+  /* ----- CSV import ----- */
+  const importCSV = async (file) => {
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const rows = parseCSV(text);
+      if (!rows.length) throw new Error("empty file");
+      const hdr = rows[0].map((h) => String(h).toLowerCase());
+      const find = (...keys) => hdr.findIndex((h) => keys.some((k) => h.includes(k)));
+      let iName = find("name", "item", "desc", "product", "material");
+      let iPrice = find("price", "cost", "amount");
+      let iUnit = find("unit", "uom", "per", "measure");
+      let iCat = find("categ", "group", "type", "dept");
+      let body;
+      if (iName >= 0 && iPrice >= 0) {
+        body = rows.slice(1);
+      } else {
+        iName = 0; iUnit = -1; iCat = -1;
+        const cols = Math.max(...rows.map((r) => r.length));
+        let best = -1, bestScore = 0;
+        for (let c = 1; c < cols; c++) {
+          const score = rows.filter((r) => num(String(r[c] || "").replace(/[$,\s]/g, "")) > 0).length;
+          if (score > bestScore) { bestScore = score; best = c; }
+        }
+        iPrice = best;
+        if (iPrice < 0) throw new Error("couldn't find a price column — use headers like name, unit, price");
+        if (cols > 2 && iPrice !== 1) iUnit = 1;
+        body = rows;
+      }
+      let added = 0, updated = 0;
+      setPrices((prev) => {
+        const next = [...prev];
+        for (const r of body) {
+          const name = String(r[iName] || "").trim();
+          if (!name) continue;
+          const price = num(String(r[iPrice] || "").replace(/[$,\s]/g, ""));
+          if (!(price > 0)) continue;
+          const unit = iUnit >= 0 ? (String(r[iUnit] || "").trim() || "ea") : "ea";
+          const cat = iCat >= 0 ? (String(r[iCat] || "").trim() || "Imported") : "Imported";
+          const idx = next.findIndex((p) => p.name.toLowerCase() === name.toLowerCase());
+          if (idx >= 0) { next[idx] = { ...next[idx], price, unit: next[idx].unit || unit }; updated++; }
+          else { next.push({ id: "csv-" + rid(), cat, name, unit, price }); added++; }
+        }
+        return next;
+      });
+      setTimeout(() => flash("CSV imported — " + updated + " prices updated, " + added + " items added"), 50);
+    } catch (e) { flash("CSV import failed: " + errMsg(e)); }
+  };
+
+  /* ----- save new AI items into the books ----- */
+  const newForBooks = (s) => ({
+    mats: s.lines.filter((l) => (l.name || "").trim() && !prices.some((p) => p.name.toLowerCase() === l.name.trim().toLowerCase())),
+    tasks: s.labor.filter((l) => (l.task || "").trim() && !rates.some((r) => r.task.toLowerCase() === l.task.trim().toLowerCase())),
+  });
+  const addToBooks = (s) => {
+    let pm = 0, pt = 0;
+    setPrices((prev) => {
+      const next = [...prev];
+      for (const l of s.lines) {
+        const nm = (l.name || "").trim();
+        if (!nm || next.some((p) => p.name.toLowerCase() === nm.toLowerCase())) continue;
+        next.push({ id: "b-" + rid(), cat: l.cat || "Imported", name: nm, unit: l.unit || "ea", price: num(l.price) });
+        pm++;
+      }
+      return next;
+    });
+    setRates((prev) => {
+      const next = [...prev];
+      for (const l of s.labor) {
+        const t = (l.task || "").trim();
+        if (!t || next.some((r) => r.task.toLowerCase() === t.toLowerCase())) continue;
+        next.push({ id: "b-" + rid(), cat: l.cat || "Custom", task: t, unit: l.unit || "ea", rate: num(l.rate) });
+        pt++;
+      }
+      return next;
+    });
+    setTimeout(() => flash("Saved to books — " + pm + " materials, " + pt + " rates, filed under their categories (hold & slide to move)."), 50);
+  };
+
+  /* ----- backup & restore ----- */
+  const exportBackup = async () => {
+    const data = { settings, prices, rates, saved, priceNote, rateNote, ...exportExtras() };
+    const json = JSON.stringify(data);
+    setBackupText(json);
+    try {
+      await navigator.clipboard.writeText(json);
+      flash("Backup copied to clipboard — paste it into Notes to keep it safe.");
+    } catch (e) {
+      flash("Backup is in the box below — select all and copy it into Notes.");
+    }
+  };
+  const importBackup = () => {
+    try {
+      const d = JSON.parse(backupText.trim());
+      if (d.settings) setSettings({ ...DEFAULT_SETTINGS, ...d.settings });
+      if (Array.isArray(d.prices)) setPrices(d.prices);
+      if (Array.isArray(d.rates)) setRates(d.rates);
+      if (Array.isArray(d.saved)) setSaved(d.saved);
+      if (d.priceNote) setPriceNote(d.priceNote);
+      if (d.rateNote) setRateNote(d.rateNote);
+      importExtras(d);
+      flash("Backup restored.");
+    } catch (e) { flash("Restore failed: " + errMsg(e) + " — make sure the whole backup text is pasted."); }
+  };
+
+  /* ----- saved bids ----- */
+  const saveBid = () => {
+    if (!bid.name) { flash("Name the job before saving."); return; }
+    const snap = {
+      ...bid,
+      scopes: bid.scopes.map((s) => ({ ...s, photos: [] })), // photos not persisted
+      savedAt: new Date().toISOString(), sell: Math.round(sell), mh: Math.round(totalMH),
+    };
+    setSaved((prev) => [snap, ...prev.filter((x) => x.name !== bid.name)].slice(0, 25));
+    flash("Bid saved: " + bid.name + " (photos aren't stored with saved bids)");
+  };
+
+  /* ============================ UI ============================ */
+  return (
+    <div className="app">
+      <style>{CSS}</style>
+
+      <header className="bar">
+        <div className="mark">CAZ<span>BID</span></div>
+        <nav className="tabs">
+          {[["bid", "Bid"], ["prices", "Prices"], ["rates", "Rates"], ["settings", "Settings"], ["saved", "Saved"]].map(([k, lbl]) => (
+            <button key={k} className={"tab" + (tab === k ? " on" : "")} onClick={() => setTab(k)}>{lbl}</button>
+          ))}
+        </nav>
+      </header>
+
+      {toast && <div className="toast">{toast}</div>}
+
+      {tab === "bid" && (
+        <div className="layout">
+          <main className="work">
+            <section className="card jobhead">
+              <input className="big-in" placeholder="Job name / address" value={bid.name} onChange={(e) => setBid({ ...bid, name: e.target.value })} />
+              <input className="big-in sub" placeholder="Client" value={bid.client} onChange={(e) => setBid({ ...bid, client: e.target.value })} />
+            </section>
+
+            {bid.scopes.map((s, si) => (
+              <section className="card scope" key={s.id}>
+                <div className="scope-head">
+                  <span className="scope-n">Scope {si + 1}</span>
+                  <span className="scope-lbl">{s.label || "Untitled scope"}</span>
+                  {bid.scopes.length > 1 && (
+                    <button className="ghost danger" onClick={() => setBid((b) => ({ ...b, scopes: b.scopes.filter((x) => x.id !== s.id) }))}>Remove</button>
+                  )}
+                </div>
+                {s.note && <p className="ai-note">{s.note}</p>}
+
+                <textarea className="desc" rows={3} value={s.desc}
+                  onChange={(e) => upScope(s.id, { desc: e.target.value })}
+                  placeholder="Describe the job — e.g. 9x12 elevated composite deck ~39 in. off grade, Trex, vinyl rail, 5 risers, gable dormer roof over it tying into existing 4/12 with LVL ridge" />
+
+                <div className="row gap">
+                  <label className="ghost sm filebtn">
+                    <input type="file" accept="image/*" multiple style={{ display: "none" }}
+                      onChange={(e) => { addPhotos(s, e.target.files); e.target.value = ""; }} />
+                    {busy === "ph-" + s.id ? "Adding…" : "📷 Add job photos"}
+                  </label>
+                  <span className="hint">photos help the AI judge scope, condition & access</span>
+                </div>
+                {s.photos.length > 0 && (
+                  <div className="thumbs">
+                    {s.photos.map((p, i) => (
+                      <div className="thumb" key={i}>
+                        <img src={p} alt={"job photo " + (i + 1)} />
+                        <button className="x tx" onClick={() => upScope(s.id, { photos: s.photos.filter((_, j) => j !== i) })}>×</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <label className="ev">
+                  <input type="file" accept="application/pdf,image/*" style={{ display: "none" }}
+                    onChange={(e) => { handleEV(s, e.target.files[0]); e.target.value = ""; }} />
+                  {busy === "ev-" + s.id ? "Reading report…" : "⬆ Upload EagleView / measurement report (PDF or photo) — auto-fills dimensions"}
+                </label>
+                <button className="ghost sm pastebtn" onClick={() => { setPastePanel(pastePanel === s.id ? null : s.id); setPasteText(""); }}>
+                  {pastePanel === s.id ? "Close paste box" : "Or paste report text instead"}
+                </button>
+                {pastePanel === s.id && (
+                  <div className="pastebox">
+                    <textarea className="desc" rows={4} value={pasteText} onChange={(e) => setPasteText(e.target.value)}
+                      placeholder="Copy the numbers off the EagleView summary page (or type them: area 2450, pitch 8/12, eaves 120, rakes 90, ridge 45, valleys 30...) and paste here" />
+                    <button className="primary" disabled={busy === "ev-" + s.id} onClick={() => parsePaste(s)}>
+                      {busy === "ev-" + s.id ? "Parsing…" : "Parse text"}
+                    </button>
+                  </div>
+                )}
+
+                <div className="dim-h">Dimensions <span className="hint">any trade — add what you've got</span></div>
+                {s.dims.length > 0 && (
+                  <div className="dims">
+                    {s.dims.map((d) => (
+                      <div className="dimrow" key={d.id}>
+                        <input className="cell name" placeholder="Label" value={d.label} onChange={(e) => upArr(s.id, "dims", d.id, { label: e.target.value })} />
+                        <input className="cell r w80" type="number" inputMode="decimal" placeholder="0" value={d.value} onChange={(e) => upArr(s.id, "dims", d.id, { value: e.target.value })} />
+                        <input className="cell w60" placeholder="unit" value={d.unit} onChange={(e) => upArr(s.id, "dims", d.id, { unit: e.target.value })} />
+                        <button className="x" onClick={() => rmArr(s.id, "dims", d.id)}>×</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="chips">
+                  {QUICK_DIMS.filter(([lbl]) => !s.dims.some((d) => d.label === lbl)).slice(0, 10).map(([lbl, u]) => (
+                    <button className="chip" key={lbl} onClick={() => addDim(s, lbl, u)}>+ {lbl}</button>
+                  ))}
+                  <button className="chip" onClick={() => addDim(s, "", "")}>+ custom</button>
+                </div>
+
+                <div className="row gap">
+                  <button className="primary" disabled={busy === "ai-" + s.id} onClick={() => buildEstimate(s)}>
+                    {busy === "ai-" + s.id ? "Estimating…" : "✦ Build estimate"}
+                  </button>
+                  <button className="ghost" disabled={busy === "sug-" + s.id || s.lines.length === 0} onClick={() => suggest(s)}>
+                    {busy === "sug-" + s.id ? "Thinking…" : "Suggest missed materials"}
+                  </button>
+                </div>
+
+                {s.lines.length > 0 && (
+                  <div>
+                    <div className="dim-h">Materials</div>
+                    <table className="lines">
+                      <thead><tr><th>Material</th><th className="r">Qty</th><th>Unit</th><th className="r">$/unit</th><th className="r">Total</th><th></th></tr></thead>
+                      <tbody>
+                        {s.lines.map((l) => (
+                          <tr key={l.id}>
+                            <td><input className="cell name" value={l.name} onChange={(e) => upArr(s.id, "lines", l.id, { name: e.target.value })} /></td>
+                            <td><input className="cell r" type="number" inputMode="decimal" value={l.qty} onChange={(e) => upArr(s.id, "lines", l.id, { qty: e.target.value })} /></td>
+                            <td><input className="cell w60" value={l.unit} onChange={(e) => upArr(s.id, "lines", l.id, { unit: e.target.value })} /></td>
+                            <td><input className="cell r" type="number" inputMode="decimal" value={l.price} onChange={(e) => upArr(s.id, "lines", l.id, { price: e.target.value })} /></td>
+                            <td className="r mono">{$2(num(l.qty) * num(l.price))}</td>
+                            <td><button className="x" onClick={() => rmArr(s.id, "lines", l.id)}>×</button></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                <button className="ghost sm" onClick={() => pushArr(s.id, "lines", { id: rid(), name: "Custom item", qty: 1, unit: "ea", price: 0 })}>+ Add material</button>
+
+                {s.suggestions.length > 0 && (
+                  <div className="sugs">
+                    <div className="sug-h">Suggested adds — tap to accept</div>
+                    {s.suggestions.map((g, i) => (
+                      <button className="sug" key={i} onClick={() => acceptSug(s, i)}>
+                        <b>{g.name}</b> — {g.qty} {g.unit} @ {$2(num(g.price))} <i>{g.why}</i>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                <div className="dim-h">Labor <span className="hint">qty × MH rate = man-hours</span></div>
+                {s.labor.length > 0 && (
+                  <table className="lines">
+                    <thead><tr><th>Task</th><th className="r">Qty</th><th>Unit</th><th className="r">MH/unit</th><th className="r">MH</th><th></th></tr></thead>
+                    <tbody>
+                      {s.labor.map((l) => (
+                        <tr key={l.id}>
+                          <td><input className="cell name" value={l.task} onChange={(e) => upArr(s.id, "labor", l.id, { task: e.target.value })} /></td>
+                          <td><input className="cell r" type="number" inputMode="decimal" value={l.qty} onChange={(e) => upArr(s.id, "labor", l.id, { qty: e.target.value })} /></td>
+                          <td><input className="cell w60" value={l.unit} onChange={(e) => upArr(s.id, "labor", l.id, { unit: e.target.value })} /></td>
+                          <td><input className="cell r" type="number" inputMode="decimal" step="0.05" value={l.rate} onChange={(e) => upArr(s.id, "labor", l.id, { rate: e.target.value })} /></td>
+                          <td className="r mono">{(num(l.qty) * num(l.rate)).toFixed(1)}</td>
+                          <td><button className="x" onClick={() => rmArr(s.id, "labor", l.id)}>×</button></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+                <div className="row gap">
+                  <select className="ratesel" value="" onChange={(e) => {
+                    const r = rates.find((x) => x.id === e.target.value);
+                    if (r) pushArr(s.id, "labor", { id: rid(), task: r.task, qty: 1, unit: r.unit, rate: r.rate });
+                  }}>
+                    <option value="">+ Add task from rates…</option>
+                    {rates.map((r) => <option key={r.id} value={r.id}>{r.task} ({r.rate} MH/{r.unit})</option>)}
+                  </select>
+                  <button className="ghost sm" onClick={() => pushArr(s.id, "labor", { id: rid(), task: "Custom task", qty: 1, unit: "ea", rate: 1 })}>+ Custom task</button>
+                </div>
+
+                {(() => {
+                  const nb = newForBooks(s);
+                  if (!nb.mats.length && !nb.tasks.length) return null;
+                  return (
+                    <div className="newbook">
+                      <span>{nb.mats.length} new material{nb.mats.length !== 1 ? "s" : ""} · {nb.tasks.length} new task{nb.tasks.length !== 1 ? "s" : ""} not in your books</span>
+                      <button className="ghost sm" onClick={() => addToBooks(s)}>+ Save to Price book & Rates</button>
+                    </div>
+                  );
+                })()}
+
+                <div className="scope-foot">
+                  <div>Materials: <b className="mono">{$0(scopeMat(s))}</b></div>
+                  <div>Man-hours: <b className="mono">{Math.round(scopeMH(s) * 10) / 10}</b></div>
+                </div>
+              </section>
+            ))}
+
+            <button className="ghost wide" onClick={() => setBid((b) => ({ ...b, scopes: [...b.scopes, newScope()] }))}>+ Add scope (mixed-trade job)</button>
+
+            <section className="card">
+              <div className="card-h">Other costs <span className="hint">dumpster, equipment, permits, subs</span></div>
+              {bid.others.map((o, i) => (
+                <div className="row gap" key={i}>
+                  <input className="cell grow" placeholder="Description" value={o.name}
+                    onChange={(e) => setBid((b) => ({ ...b, others: b.others.map((x, j) => j === i ? { ...x, name: e.target.value } : x) }))} />
+                  <input className="cell r w90" type="number" inputMode="decimal" placeholder="$" value={o.amount}
+                    onChange={(e) => setBid((b) => ({ ...b, others: b.others.map((x, j) => j === i ? { ...x, amount: e.target.value } : x) }))} />
+                  <button className="x" onClick={() => setBid((b) => ({ ...b, others: b.others.filter((_, j) => j !== i) }))}>×</button>
+                </div>
+              ))}
+              <button className="ghost sm" onClick={() => setBid((b) => ({ ...b, others: [...b.others, { name: "", amount: "" }] }))}>+ Add cost</button>
+            </section>
+          </main>
+
+          <aside className="ticket">
+            <div className="perf" />
+            <div className="t-h">BID TICKET</div>
+            <div className="t-job">{bid.name || "—"}</div>
+            <div className="t-rows">
+              <div><span>Materials</span><b className="mono">{$0(matSub)}</b></div>
+              <div><span>Sales tax {settings.taxRate}%</span><b className="mono">{$0(tax)}</b></div>
+              <div><span>Labor — {Math.round(totalMH)} MH @ ${settings.mhRate}</span><b className="mono">{$0(laborCost)}</b></div>
+              {otherCost > 0 && <div><span>Other costs</span><b className="mono">{$0(otherCost)}</b></div>}
+              <div className="t-cost"><span>Total cost</span><b className="mono">{$0(totalCost)}</b></div>
+            </div>
+            <div className="t-margin">
+              <span>Gross margin</span>
+              <input type="number" inputMode="decimal" value={settings.margin} onChange={(e) => setSettings({ ...settings, margin: num(e.target.value) })} />%
+            </div>
+            <div className="t-sell">
+              <span>SELL PRICE</span>
+              <div className="t-price mono">{$0(sell)}</div>
+            </div>
+            <div className="t-gp">GP {$0(gp)} · markup equiv {Math.round(markupEq)}%</div>
+            <button className="primary wide" onClick={saveBid}>Save bid</button>
+          </aside>
+        </div>
+      )}
+
+      {tab === "prices" && (
+        <main className="single">
+          <section className="card">
+            <div className="card-h">Price book
+              <span className="row gap0">
+                <label className="ghost filebtn">
+                  <input type="file" accept=".csv,text/csv" style={{ display: "none" }}
+                    onChange={(e) => { importCSV(e.target.files[0]); e.target.value = ""; }} />
+                  ⬆ Import CSV
+                </label>
+                <button className="primary" disabled={busy === "prices"} onClick={refreshPrices}>
+                  {busy === "prices" ? "Searching…" : "↻ Refresh live pricing"}
+                </button>
+              </span>
+            </div>
+            <p className="hint">CSV import: columns like name, unit, price (header row optional). Matching names update prices; new items land under "Imported". Live refresh web-searches retail pricing near {settings.location} — edit any cell to match your ABC/Beacon account pricing.</p>
+            {priceNote && <p className="hint orange">{priceNote}</p>}
+            {[...new Set(prices.map((p) => p.cat))].map((cat) => (
+              <div key={cat}>
+                <div {...priceDrag.hdrProps(cat)}>{cat}</div>
+                <table className="lines">
+                  <tbody>
+                    {prices.filter((p) => p.cat === cat).map((p) => (
+                      <tr key={p.id} {...priceDrag.rowProps(p.id)}>
+                        <td className="w26"><span {...priceDrag.handleProps(p.id)}>≡</span></td>
+                        <td><input className="cell name" value={p.name}
+                          onChange={(e) => setPrices((ps) => ps.map((x) => x.id === p.id ? { ...x, name: e.target.value } : x))} /></td>
+                        <td className="w80"><input className="cell" value={p.unit}
+                          onChange={(e) => setPrices((ps) => ps.map((x) => x.id === p.id ? { ...x, unit: e.target.value } : x))} /></td>
+                        <td className="w110"><input className="cell r" type="number" inputMode="decimal" value={p.price}
+                          onChange={(e) => setPrices((ps) => ps.map((x) => x.id === p.id ? { ...x, price: num(e.target.value) } : x))} /></td>
+                        <td><button className="x" onClick={() => setPrices((ps) => ps.filter((x) => x.id !== p.id))}>×</button></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ))}
+            <button className="ghost sm" onClick={() => setPrices((ps) => [...ps, { id: "u-" + rid(), cat: "Imported", name: "New item", unit: "ea", price: 0 }])}>+ Add item</button>
+          </section>
+        </main>
+      )}
+
+      {tab === "rates" && (
+        <main className="single">
+          <section className="card">
+            <div className="card-h">Production rates
+              <button className="primary" disabled={busy === "rates"} onClick={benchmarkRates}>
+                {busy === "rates" ? "Benchmarking…" : "↻ Pull industry benchmarks"}
+              </button>
+            </div>
+            <p className="hint">Man-hours per unit of installed work (sq = 100 sqft). Seeded from industry-standard productivity figures; the benchmark button re-pulls from published estimating data. Tune every number to YOUR crews — these drive the labor lines the AI builds and the "Add task" picker on bids.</p>
+            {rateNote && <p className="hint orange">{rateNote}</p>}
+            {[...new Set(rates.map((r) => r.cat))].map((cat) => (
+              <div key={cat}>
+                <div {...rateDrag.hdrProps(cat)}>{cat}</div>
+                <table className="lines">
+                  <tbody>
+                    {rates.filter((r) => r.cat === cat).map((r) => (
+                      <tr key={r.id} {...rateDrag.rowProps(r.id)}>
+                        <td className="w26"><span {...rateDrag.handleProps(r.id)}>≡</span></td>
+                        <td><input className="cell name" value={r.task}
+                          onChange={(e) => setRates((rs) => rs.map((x) => x.id === r.id ? { ...x, task: e.target.value } : x))} /></td>
+                        <td className="w80"><input className="cell" value={r.unit}
+                          onChange={(e) => setRates((rs) => rs.map((x) => x.id === r.id ? { ...x, unit: e.target.value } : x))} /></td>
+                        <td className="w110"><input className="cell r" type="number" inputMode="decimal" step="0.01" value={r.rate}
+                          onChange={(e) => setRates((rs) => rs.map((x) => x.id === r.id ? { ...x, rate: num(e.target.value) } : x))} /></td>
+                        <td><button className="x" onClick={() => setRates((rs) => rs.filter((x) => x.id !== r.id))}>×</button></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ))}
+            <button className="ghost sm" onClick={() => setRates((rs) => [...rs, { id: "u-" + rid(), cat: "Custom", task: "New task", unit: "ea", rate: 1 }])}>+ Add rate</button>
+          </section>
+        </main>
+      )}
+
+      {tab === "settings" && (
+        <main className="single">
+          <section className="card">
+            <div className="card-h">Company numbers</div>
+            <div className="setgrid">
+              <label className="dim"><span>Man-hour rate ($/MH, blended)</span>
+                <input type="number" inputMode="decimal" value={settings.mhRate} onChange={(e) => setSettings({ ...settings, mhRate: num(e.target.value) })} /></label>
+              <label className="dim"><span>Default gross margin (%)</span>
+                <input type="number" inputMode="decimal" value={settings.margin} onChange={(e) => setSettings({ ...settings, margin: num(e.target.value) })} /></label>
+              <label className="dim"><span>Sales tax on materials (%)</span>
+                <input type="number" inputMode="decimal" value={settings.taxRate} onChange={(e) => setSettings({ ...settings, taxRate: num(e.target.value) })} /></label>
+              <label className="dim"><span>Location (for pricing)</span>
+                <input value={settings.location} onChange={(e) => setSettings({ ...settings, location: e.target.value })} /></label>
+            </div>
+          </section>
+          <section className="card">
+            <div className="card-h">Backup & restore</div>
+            <div className="row gap">
+              <button className="ghost" onClick={exportBackup}>⤓ Export backup</button>
+              <button className="ghost" onClick={importBackup}>⤒ Restore from backup</button>
+            </div>
+            <textarea className="desc" rows={3} value={backupText} onChange={(e) => setBackupText(e.target.value)}
+              placeholder="Export fills this box (and copies to clipboard). To restore: paste a backup here and hit Restore." />
+            <p className="hint">If the app forgets your data between launches — common when it's running from a file instead of a hosted web link — keep a backup in Notes and restore it in two taps. Hosting the app at a real URL fixes it permanently.</p>
+          </section>
+          <section className="card">
+            <div className="card-h">AI access</div>
+            <label className="dim"><span>Anthropic API key</span>
+              <input type="password" placeholder="sk-ant-..." value={apiKey}
+                onChange={(e) => { setApiKey(e.target.value); try { localStorage.setItem("caza-api-key", e.target.value.trim()); } catch (err) {} }} /></label>
+            <p className="hint" style={{ marginTop: 6 }}>Powers EagleView parsing, estimates, live pricing, benchmarks, and suggestions in this standalone version. Get a key at console.anthropic.com → API Keys (usage costs pennies per lookup). Stored only in this browser. Without a key, all the takeoff, pricing, man-hour, and margin math still works.</p>
+          </section>
+          <section className="card">
+            <div className="card-h">Diagnostics</div>
+            <button className="primary" disabled={busy === "test"} onClick={testAI}>
+              {busy === "test" ? "Testing…" : "Test AI connection"}
+            </button>
+            <p className="hint" style={{ marginTop: 8 }}>If EagleView parsing, estimates, or price refresh fail, run this first. It pings the AI with a one-word prompt and shows exactly what comes back — including the real error code if something's blocking it.</p>
+          </section>
+        </main>
+      )}
+
+      {tab === "saved" && (
+        <main className="single">
+          <section className="card">
+            <div className="card-h">Saved bids</div>
+            {saved.length === 0 && <p className="hint">Nothing saved yet. Build a bid and hit Save — it'll land here.</p>}
+            {saved.map((b, i) => (
+              <div className="saved-row" key={i}>
+                <div>
+                  <b>{b.name}</b>{b.client ? " — " + b.client : ""}
+                  <div className="hint">{new Date(b.savedAt).toLocaleDateString()} · {b.scopes.length} scope{b.scopes.length > 1 ? "s" : ""} · {b.mh} MH</div>
+                </div>
+                <div className="mono sell-sm">{$0(b.sell)}</div>
+                <button className="ghost sm" onClick={() => { setBid({ name: b.name, client: b.client, scopes: (b.scopes || []).map(migScope), others: b.others || [] }); setTab("bid"); }}>Open</button>
+                <button className="x" onClick={() => setSaved((p) => p.filter((_, j) => j !== i))}>×</button>
+              </div>
+            ))}
+          </section>
+        </main>
+      )}
+    </div>
+  );
+}
+
+/* ============================ CSS ============================ */
+const CSS = `
+@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap');
+*{box-sizing:border-box;margin:0;-webkit-tap-highlight-color:transparent}
+.app{min-height:100vh;background:#EEF0EB;font-family:Inter,system-ui,sans-serif;color:#1B1F23;font-size:14px}
+.mono{font-family:'JetBrains Mono',monospace}
+.bar{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:14px;background:#1B1F23;padding:10px 16px;padding-top:calc(10px + env(safe-area-inset-top));padding-left:calc(16px + env(safe-area-inset-left));padding-right:calc(16px + env(safe-area-inset-right));border-bottom:3px solid #FF6A13}
+.mark{font-family:'Barlow Condensed';font-weight:700;font-size:26px;letter-spacing:1px;color:#fff}
+.mark span{color:#FF6A13}
+.tabs{display:flex;gap:2px;margin-left:auto}
+.tab{font-family:'Barlow Condensed';font-weight:600;font-size:16px;letter-spacing:.5px;text-transform:uppercase;background:none;border:none;color:#9aa3ab;padding:8px 10px;cursor:pointer;border-bottom:2px solid transparent}
+.tab.on{color:#fff;border-bottom-color:#FF6A13}
+.tab:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid #FF6A13;outline-offset:1px}
+.toast{position:fixed;bottom:calc(18px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);background:#1B1F23;color:#fff;padding:10px 18px;border-left:4px solid #FF6A13;z-index:50;max-width:90vw;box-shadow:0 6px 20px rgba(0,0,0,.3)}
+.layout{display:grid;grid-template-columns:1fr 340px;gap:16px;padding:16px;padding-left:calc(16px + env(safe-area-inset-left));padding-right:calc(16px + env(safe-area-inset-right));padding-bottom:calc(24px + env(safe-area-inset-bottom));max-width:1180px;margin:0 auto;align-items:start}
+.single{padding:16px;padding-left:calc(16px + env(safe-area-inset-left));padding-right:calc(16px + env(safe-area-inset-right));padding-bottom:calc(24px + env(safe-area-inset-bottom));max-width:860px;margin:0 auto}
+.work{display:flex;flex-direction:column;gap:14px}
+.card{background:#fff;border:1px solid #D8DBD3;padding:14px 16px}
+.card-h{font-family:'Barlow Condensed';font-weight:700;font-size:19px;text-transform:uppercase;letter-spacing:.6px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.jobhead .big-in{width:100%;border:none;border-bottom:2px solid #D8DBD3;font-family:'Barlow Condensed';font-weight:700;font-size:24px;padding:4px 0;background:none}
+.jobhead .sub{font-size:16px;font-weight:600;margin-top:6px}
+.scope-head{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap}
+.scope-n{font-family:'Barlow Condensed';font-weight:700;font-size:15px;letter-spacing:1px;text-transform:uppercase;background:#1B1F23;color:#fff;padding:3px 9px}
+.scope-lbl{font-family:'Barlow Condensed';font-weight:700;font-size:18px}
+select{font:inherit;font-weight:500;padding:6px 8px;border:1px solid #c6cabf;background:#fff;max-width:100%}
+.ratesel{max-width:260px}
+.ev{display:block;border:1.5px dashed #FF6A13;color:#c14f08;background:#FFF4EC;padding:10px 12px;margin-bottom:8px;cursor:pointer;font-weight:500}
+.desc{width:100%;border:1px solid #c6cabf;padding:9px 10px;font:inherit;font-size:14px;resize:vertical;margin-bottom:8px;background:#fff}
+.ai-note{font-size:13px;color:#374151;background:#F6F7F3;border-left:3px solid #FF6A13;padding:7px 10px;margin-bottom:10px}
+.dim-h{font-family:'Barlow Condensed';font-weight:700;font-size:15px;letter-spacing:.8px;text-transform:uppercase;margin:12px 0 6px;display:flex;gap:8px;align-items:baseline}
+.dims{display:flex;flex-direction:column;gap:4px;margin-bottom:6px}
+.dimrow{display:flex;gap:6px;align-items:center}
+.dim span{display:block;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:#6B7280;margin-bottom:2px}
+.dim input{width:100%;padding:7px 8px;border:1px solid #c6cabf;font-family:'JetBrains Mono',monospace;font-size:14px}
+.setgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px 12px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.chip{background:#F6F7F3;border:1px solid #c6cabf;padding:4px 10px;font-size:12.5px;border-radius:20px;cursor:pointer}
+.chip:hover{border-color:#FF6A13;color:#c14f08}
+.thumbs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.thumb{position:relative;width:74px;height:74px;border:1px solid #c6cabf}
+.thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.tx{position:absolute;top:-2px;right:-2px;background:#1B1F23;color:#fff;line-height:1;border-radius:50%;width:20px;height:20px;font-size:13px;padding:0}
+.row{display:flex;align-items:center}
+.gap{gap:8px;margin-bottom:8px;flex-wrap:wrap}
+.gap0{gap:8px;flex-wrap:wrap}
+.grow{flex:1}
+.w60{width:60px}.w80{width:80px}.w90{width:90px}.w110{width:110px}
+button{cursor:pointer;font:inherit}
+.primary{background:#FF6A13;color:#fff;border:none;padding:9px 16px;font-family:'Barlow Condensed';font-weight:700;font-size:16px;letter-spacing:.6px;text-transform:uppercase}
+.primary:disabled{opacity:.55;cursor:wait}
+.ghost{background:#fff;border:1px solid #c6cabf;padding:8px 12px;font-weight:500}
+.ghost:disabled{opacity:.45}
+.ghost.danger{color:#b3261e;margin-left:auto}
+.filebtn{display:inline-block;cursor:pointer}
+.sm{padding:5px 10px;font-size:13px}
+.wide{width:100%}
+.pastebtn{margin:0 0 10px}
+.pastebox{margin-bottom:10px}
+.lines{width:100%;border-collapse:collapse;margin:6px 0}
+.lines th{font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:#6B7280;text-align:left;padding:4px 6px;border-bottom:1.5px solid #1B1F23}
+.lines td{padding:3px 6px;border-bottom:1px solid #E6E8E1;vertical-align:middle}
+.lines .r,.cell.r{text-align:right}
+.cell{border:1px solid transparent;background:none;padding:5px 6px;width:100%;font-family:'JetBrains Mono',monospace;font-size:13px}
+.cell.name{font-family:Inter;width:100%;min-width:130px}
+.cell:hover,.cell:focus{border-color:#c6cabf;background:#fff}
+.x{background:none;border:none;color:#9aa3ab;font-size:17px;padding:2px 6px}
+.x:hover{color:#b3261e}
+.sugs{background:#F6F7F3;border:1px solid #D8DBD3;padding:10px;margin:8px 0}
+.sug-h{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#FF6A13;margin-bottom:6px}
+.sug{display:block;width:100%;text-align:left;background:#fff;border:1px solid #D8DBD3;padding:7px 10px;margin-bottom:5px}
+.sug i{color:#6B7280;font-style:normal;font-size:12px;display:block}
+.sug:hover{border-color:#FF6A13}
+.newbook{display:flex;justify-content:space-between;align-items:center;gap:10px;background:#FFF4EC;border:1px solid #FF6A13;padding:8px 10px;margin:10px 0;font-size:13px;flex-wrap:wrap}
+.scope-foot{display:flex;justify-content:space-between;align-items:center;gap:12px;border-top:1.5px solid #1B1F23;padding-top:9px;margin-top:10px;flex-wrap:wrap}
+.hint{font-size:12px;color:#6B7280;font-weight:400;text-transform:none;letter-spacing:0}
+.hint.orange{color:#c14f08}
+.cat{font-family:'Barlow Condensed';font-weight:700;font-size:16px;text-transform:uppercase;letter-spacing:.7px;margin:14px 0 2px;color:#FF6A13;padding:2px 4px;border:1.5px dashed transparent}
+.cat-over{border-color:#FF6A13;background:#FFF4EC}
+.grab{cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;color:#9aa3ab;font-size:16px;padding:6px 8px;display:inline-block}
+.grab:active{cursor:grabbing;color:#FF6A13}
+.w26{width:26px}
+tr.dragging{opacity:.45;background:#FFF4EC}
+tr.over-top td{border-top:2.5px solid #FF6A13}
+tr.over-bot td{border-bottom:2.5px solid #FF6A13}
+.ticket{position:sticky;top:64px;background:#fff;border:1px solid #c6cabf;padding:0 16px 16px;box-shadow:0 4px 14px rgba(27,31,35,.10)}
+.perf{height:10px;margin:0 -16px;border-bottom:2px dashed #c6cabf;background:repeating-linear-gradient(90deg,#EEF0EB 0 8px,transparent 8px 16px)}
+.t-h{font-family:'Barlow Condensed';font-weight:700;font-size:14px;letter-spacing:2.5px;color:#6B7280;margin:12px 0 2px}
+.t-job{font-family:'Barlow Condensed';font-weight:700;font-size:20px;line-height:1.15;min-height:23px;margin-bottom:10px}
+.t-rows>div{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #E6E8E1;font-size:13px}
+.t-rows .t-cost{border-bottom:1.5px solid #1B1F23;font-weight:600}
+.t-margin{display:flex;align-items:center;gap:8px;padding:10px 0 4px;font-weight:600}
+.t-margin input{width:60px;padding:5px;border:1px solid #c6cabf;font-family:'JetBrains Mono',monospace;text-align:right;font-size:15px}
+.t-sell span{font-family:'Barlow Condensed';font-weight:700;font-size:13px;letter-spacing:2px;color:#6B7280}
+.t-price{font-size:34px;font-weight:600;color:#FF6A13;line-height:1.1;margin:2px 0 4px}
+.t-gp{font-size:12.5px;color:#2E7D4F;font-weight:600;margin-bottom:12px}
+.saved-row{display:flex;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid #E6E8E1}
+.saved-row>div:first-child{flex:1}
+.sell-sm{font-weight:600;font-size:16px}
+@media (max-width:880px){
+  .layout{grid-template-columns:1fr}
+  .ticket{position:static;order:-1}
+  .tab{font-size:13.5px;padding:10px 7px}
+  input,select,textarea{font-size:16px}
+  .cell{font-size:16px;padding:8px 6px}
+  .cell.name{min-width:150px}
+  .lines{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .x{font-size:20px;padding:8px 10px}
+  .chip{padding:8px 14px;font-size:14px}
+  .grab{padding:10px 12px;font-size:18px}
+  .dim input{font-size:16px}
+  .t-margin input{font-size:16px}
+  .primary{padding:11px 18px}
+  .ghost{padding:10px 12px}
+  .sm{padding:8px 12px;font-size:14px}
+}
+@media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+`;
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
