@@ -1,0 +1,15 @@
+[build]
+  # Netlify regenerates dist/index.html from app.src.jsx on every deploy,
+  # so you can edit the app, push, and Netlify rebuilds for you.
+  command = "npm run build"
+  publish = "dist"
+  functions = "netlify/functions"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# Bundle the trade manuals (markdown) alongside the functions so estimate can read
+# them at runtime. Without this, Netlify's bundler ships only code and the manuals
+# would be missing. (PRESERVED from your original config.)
+[functions]
+  included_files = ["netlify/functions/manuals/**"]
